@@ -1,0 +1,20 @@
+# Unreal Engine typical ignore list
+
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+.vscode/
+*.sln
+*.opensdf
+*.sdf
+*.suo
+*.user
+*.userprefs
+*.VC.db
+*.VC.opendb
+.DS_Store
+Thumbs.db
+*.uasset
+*.umap
