@@ -8,6 +8,8 @@
 #include "GameFramework/Controller.h"
 #include "GameFramework/CharacterMovementComponent.h"
 #include "GameFramework/PlayerController.h"
+#include "Blueprint/UserWidget.h"
+
 
 #include "NiagaraFunctionLibrary.h"
 #include "Kismet/GameplayStatics.h"
@@ -29,6 +31,9 @@ AMyPlayer::AMyPlayer()
 	FollowCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FollowCamera"));
 	FollowCamera->SetupAttachment(CameraBoom, USpringArmComponent::SocketName);
 	FollowCamera->bUsePawnControlRotation = false;  // Camera does not rotate relative to the arm
+
+	AbilitySystemComp = CreateDefaultSubobject<UAbilitySystemComponent>(TEXT("AbilitySystemComponent"));
+	AttributeSet = CreateDefaultSubobject<UMyAttributeSet>(TEXT("AttributeSet"));
 }
 
 // Called when the game starts or when spawned
@@ -39,8 +44,34 @@ void AMyPlayer::BeginPlay()
 	GetCharacterMovement()->bOrientRotationToMovement = false;
 	StartRunning();
 	StopRunning();
+	if (AbilitySystemComp)
+	{
+		AbilitySystemComp->InitAbilityActorInfo(this, this);
+	}
+	AttributeSet->InitMaxHealth(100.0f);
+	AttributeSet->InitHealth(100.0f);
+
+	if (HealthWidgetClass)
+	{
+		HealthWidget = CreateWidget<UHealthBarWidget>(GetWorld(), HealthWidgetClass);
+		if (HealthWidget)
+		{
+			HealthWidget->AddToViewport();
+
+			if (AttributeSet)
+			{
+				HealthWidget->UpdateHealth(AttributeSet->GetHealth(), AttributeSet->GetMaxHealth());
+			}
+		}
+		
+	}
 }
 
+
+UAbilitySystemComponent* AMyPlayer::GetAbilitySystemComponent() const
+{
+	return AbilitySystemComp;
+}
 void AMyPlayer::MoveForward(float Value)
 {
 	if ((Controller != nullptr) && (Value != 0.0f) && !bIsAttacking)
@@ -125,13 +156,13 @@ void AMyPlayer::PlayAttackMontage()
 		
 	}
 
-	FTimerHandle TraceTimerHandle;
-	GetWorld()->GetTimerManager().SetTimer(TraceTimerHandle, this, &AMyPlayer::PerformAttackTrace, 0.2f, false);
+	
 }
 
 void AMyPlayer::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 {
 	bIsAttacking = false;
+	HitActorsThisAttack.Empty();
 
 	// Remove any lingering delegates to avoid stacking them
 	if (GetMesh()->GetAnimInstance())
@@ -142,6 +173,8 @@ void AMyPlayer::OnAttackMontageEnded(UAnimMontage* Montage, bool bInterrupted)
 
 void AMyPlayer::PerformAttackTrace()
 {
+	UE_LOG(LogTemp, Warning, TEXT("PerformAttackTrace() called"));
+
 	FVector Start = GetActorLocation();
 	FVector Forward = GetActorForwardVector();
 	FVector End = Start + (Forward * AttackRange);
@@ -150,24 +183,29 @@ void AMyPlayer::PerformAttackTrace()
 	Params.AddIgnoredActor(this);
 
 	TArray<FHitResult> HitResults;
+	TSet<AActor*> UniqueActorsThisTrace;  // ? Track only 1 hit per actor
 
-	// Perform a sphere trace
-	bool bHit = GetWorld()->SweepMultiByChannel(HitResults, Start, End, FQuat::Identity, ECC_Pawn, FCollisionShape::MakeSphere(AttackRadius), Params);
+	bool bHit = GetWorld()->SweepMultiByChannel(HitResults, Start, End, FQuat::Identity,ECC_Pawn, FCollisionShape::MakeSphere(AttackRadius), Params);
 
 	if (bHit)
 	{
 		for (const FHitResult& Hit : HitResults)
 		{
 			AActor* HitActor = Hit.GetActor();
-			if (HitActor && HitActor != this)
+			if (HitActor && HitActor != this && !UniqueActorsThisTrace.Contains(HitActor))
 			{
-				// Apply damage to enemy
-				UGameplayStatics::ApplyDamage(HitActor, AttackDamage, GetController(), this, UDamageType::StaticClass());
+				UniqueActorsThisTrace.Add(HitActor);  // ? ensure one hit per actor
+
+				// Optional: Print actor name
 				UE_LOG(LogTemp, Warning, TEXT("Hit actor: %s"), *HitActor->GetName());
+
+				// Apply damage
+				UGameplayStatics::ApplyDamage(HitActor, AttackDamage, GetController(), this, UDamageType::StaticClass());
 			}
 		}
 	}
-	DrawDebugSphere(GetWorld(), End, AttackRadius, 12, FColor::Red, false, 1.0f); // Visualize the attack range
+
+	DrawDebugSphere(GetWorld(), End, AttackRadius, 12, FColor::Red, false, 1.0f);
 }
 
 void AMyPlayer::PlayKickMontage()
@@ -197,10 +235,26 @@ void AMyPlayer::PlayKickMontage()
 	}
 }
 
-void AMyPlayer::ModifyHealth(float Delta)
+float AMyPlayer::TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser)
 {
-	
+	float CurrentHealth = AttributeSet->GetHealth();
+	float NewHealth = CurrentHealth - DamageAmount;
+	AttributeSet->SetHealth(NewHealth);
+
+	if (HealthWidget)
+	{
+		HealthWidget->UpdateHealth(NewHealth, AttributeSet->GetMaxHealth());
+	}
+	UE_LOG(LogTemp, Warning, TEXT("Player Health: %f"), NewHealth);
+
+	if (NewHealth <= 0.0f)
+	{
+		UGameplayStatics::SetGamePaused(GetWorld(), true);
+	}
+
+	return DamageAmount;
 }
+
 
 void AMyPlayer::Blink()
 {

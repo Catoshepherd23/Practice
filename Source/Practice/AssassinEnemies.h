@@ -4,19 +4,24 @@
 
 #include "CoreMinimal.h"
 #include "AllEnemies.h"
+#include "GameFramework/Character.h"
+#include "AbilitySystemInterface.h"
+#include "AbilitySystemComponent.h"
+#include "MyAttributeSet.h"
 #include "AssassinEnemies.generated.h"
 
 /**
  * 
  */
 UCLASS()
-class PRACTICE_API AAssassinEnemies : public AAllEnemies
+class PRACTICE_API AAssassinEnemies : public AAllEnemies, public IAbilitySystemInterface
 {
 	GENERATED_BODY()
 	
 public:
 	AAssassinEnemies();
 	virtual void Tick(float DeltaTime) override;
+	virtual UAbilitySystemComponent* GetAbilitySystemComponent() const override;
 
 	float TakeDamage(float DamageAmount, FDamageEvent const& DamageEvent, AController* EventInstigator, AActor* DamageCauser);
 	void AttackPlayer();
@@ -24,6 +29,7 @@ public:
 	void RepeatAttack();
 	void StopAttack();
 
+	void DealDamageToPlayer();
 	bool IsEngaging() const { return bIsEngagingPlayer; }
 
 	FTimerHandle AttackRepeatTimerHandle;
@@ -50,9 +56,11 @@ protected:
 	virtual void BeginPlay() override;
 	void PlayDeathMontage();
 	void PlayAttackMontage();
+	UPROPERTY()
+	UAbilitySystemComponent* AbilitySystemComp;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Health")
-	float Health = 100.0f;
+	UPROPERTY()
+	UMyAttributeSet* AttributeSet;
 	
 private:
 	bool bIsDead = false;
